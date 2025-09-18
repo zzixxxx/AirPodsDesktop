@@ -21,17 +21,34 @@
 #include <QScreen>
 #include <QPainter>
 #include <QMessageBox>
+#include <QStringList>
 
 #include <Config.h>
 #include "../Helper.h"
 #include "../Error.h"
 #include "../Application.h"
 #include "../Core/AppleCP.h"
+#include "../Core/Settings.h"
 #include "SelectWindow.h"
 
 using namespace std::chrono_literals;
 
 namespace Gui {
+
+namespace {
+QString FormatDeviceAddress(uint64_t address)
+{
+    QString hex = QString::number(static_cast<qulonglong>(address), 16)
+                       .toUpper()
+                       .rightJustified(12, QLatin1Char('0'));
+
+    for (int index = hex.size() - 2; index > 0; index -= 2) {
+        hex.insert(index, QLatin1Char(':'));
+    }
+
+    return hex;
+}
+} // namespace
 
 class CloseButton : public QWidget
 {
@@ -476,6 +493,9 @@ void MainWindow::BindDevice()
 {
     LOG(Info, "BindDevice");
 
+    const auto settings = Core::Settings::GetCurrent();
+    const auto boundAddress = settings.device_address;
+
     const auto devices = Core::AirPods::GetDevices();
     if (devices.empty()) {
         QMessageBox::warning(
@@ -486,19 +506,53 @@ void MainWindow::BindDevice()
     }
 
     int selectedIndex = 0;
+    int connectedIndex = -1;
+    int boundIndex = -1;
 
-    if (devices.size() > 1) {
-        QStringList deviceNames;
-        for (const auto &device : devices) {
-            auto deviceName = device.GetName();
+    QStringList deviceNames;
+    deviceNames.reserve(static_cast<int>(devices.size()));
 
-            LOG(Trace, "Device name: '{}'", deviceName);
-            LOG(Trace, "GetProductId: '{}' GetVendorId: '{}'", device.GetProductId(),
-                device.GetVendorId());
-            deviceNames.append(QString::fromStdString(deviceName));
+    for (int index = 0; index < static_cast<int>(devices.size()); ++index) {
+        const auto &device = devices.at(index);
+
+        LOG(Trace, "Device name: '{}'", device.GetName());
+        LOG(Trace, "GetProductId: '{}' GetVendorId: '{}'", device.GetProductId(),
+            device.GetVendorId());
+
+        QString deviceName = QString::fromStdString(device.GetName());
+        if (deviceName.isEmpty()) {
+            deviceName = tr("AirPods");
         }
 
-        SelectWindow selector{tr("Please select your AirPods device below."), deviceNames, this};
+        const auto addressText = FormatDeviceAddress(device.GetAddress());
+        deviceName += QStringLiteral(" · %1").arg(addressText);
+
+        const bool isConnected =
+            device.GetConnectionState() == Core::Bluetooth::DeviceState::Connected;
+        if (isConnected) {
+            deviceName += tr(" (Connected)");
+            if (connectedIndex == -1) {
+                connectedIndex = index;
+            }
+        }
+
+        if (device.GetAddress() == boundAddress) {
+            boundIndex = index;
+        }
+
+        deviceNames.append(deviceName);
+    }
+
+    if (boundIndex != -1) {
+        selectedIndex = boundIndex;
+    }
+    else if (connectedIndex != -1) {
+        selectedIndex = connectedIndex;
+    }
+
+    if (devices.size() > 1) {
+        SelectWindow selector{
+            tr("Please select your AirPods device below."), deviceNames, this, selectedIndex};
         if (selector.exec() == -1) {
             LOG(Warn, "selector.exec() == -1");
             return;
@@ -514,6 +568,27 @@ void MainWindow::BindDevice()
     }
 
     const auto &selectedDevice = devices.at(selectedIndex);
+
+    if (boundAddress != 0 && selectedDevice.GetAddress() != boundAddress) {
+        QString previousBinding;
+        if (boundIndex >= 0 && boundIndex < deviceNames.size()) {
+            previousBinding = deviceNames.at(boundIndex);
+        }
+        else {
+            previousBinding = FormatDeviceAddress(boundAddress);
+        }
+
+        const auto confirmation = QMessageBox::question(
+            this, Config::ProgramName,
+            tr("Switch binding from %1 to %2?")
+                .arg(previousBinding, deviceNames.at(selectedIndex)),
+            QMessageBox::Yes | QMessageBox::No);
+
+        if (confirmation != QMessageBox::Yes) {
+            LOG(Info, "User canceled AirPods binding change.");
+            return;
+        }
+    }
 
     LOG(Info, "Selected device index: '{}', device name: '{}'. Bound to this device.",
         selectedIndex, selectedDevice.GetName());

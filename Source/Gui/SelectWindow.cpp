@@ -22,7 +22,8 @@
 
 namespace Gui {
 
-SelectWindow::SelectWindow(const QString &title, const QStringList &items, QWidget *parent)
+SelectWindow::SelectWindow(
+    const QString &title, const QStringList &items, QWidget *parent, int defaultIndex)
     : QDialog{parent}
 {
     _ui.setupUi(this);
@@ -40,7 +41,13 @@ SelectWindow::SelectWindow(const QString &title, const QStringList &items, QWidg
 
     _ui.label->setText(title);
     _ui.listWidget->addItems(items);
-    _ui.listWidget->item(0)->setSelected(true);
+
+    if (defaultIndex < 0 || defaultIndex >= _ui.listWidget->count()) {
+        defaultIndex = 0;
+    }
+
+    _ui.listWidget->setCurrentRow(defaultIndex);
+    _ui.listWidget->item(defaultIndex)->setSelected(true);
 }
 
 bool SelectWindow::HasResult() const
