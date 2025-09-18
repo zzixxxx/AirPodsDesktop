@@ -33,7 +33,9 @@ class SelectWindow : public QDialog
     Q_OBJECT
 
 public:
-    SelectWindow(const QString &title, const QStringList &items, QWidget *parent = nullptr);
+    SelectWindow(
+        const QString &title, const QStringList &items, QWidget *parent = nullptr,
+        int defaultIndex = 0);
 
     bool HasResult() const;
     int GetSeletedIndex() const;
